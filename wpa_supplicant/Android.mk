@@ -1547,7 +1547,7 @@ endif
 
 include $(CLEAR_VARS)
 LOCAL_MODULE := wpa_cli
-LOCAL_MODULE_TAGS := debug
+LOCAL_MODULE_TAGS :=  optional
 LOCAL_SHARED_LIBRARIES := libc libcutils liblog
 LOCAL_CFLAGS := $(L_CFLAGS)
 LOCAL_SRC_FILES := $(OBJS_c)
