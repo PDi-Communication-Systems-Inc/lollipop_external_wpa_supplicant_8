@@ -1,6 +1,8 @@
 /*
  * EAP peer method: EAP-AKA (RFC 4187) and EAP-AKA' (RFC 5448)
  * Copyright (c) 2004-2012, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2011 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -1296,7 +1298,7 @@ static struct wpabuf * eap_aka_process(struct eap_sm *sm, void *priv,
 
 	pos = eap_hdr_validate(EAP_VENDOR_IETF, data->eap_method, reqData,
 			       &len);
-	if (pos == NULL || len < 1) {
+	if (pos == NULL || len < 3) {
 		ret->ignore = TRUE;
 		return NULL;
 	}

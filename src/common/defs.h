@@ -1,6 +1,8 @@
 /*
  * WPA Supplicant - Common definitions
- * Copyright (c) 2004-2008, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2004-2015, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -32,6 +34,7 @@ typedef enum { FALSE = 0, TRUE = 1 } Boolean;
 #define WPA_CIPHER_BIP_GMAC_256 BIT(12)
 #define WPA_CIPHER_BIP_CMAC_256 BIT(13)
 #define WPA_CIPHER_GTK_NOT_USED BIT(14)
+#define WPA_CIPHER_AES_WAPI BIT(15)
 
 #define WPA_KEY_MGMT_IEEE8021X BIT(0)
 #define WPA_KEY_MGMT_PSK BIT(1)
@@ -49,6 +52,8 @@ typedef enum { FALSE = 0, TRUE = 1 } Boolean;
 #define WPA_KEY_MGMT_WAPI_CERT BIT(13)
 #define WPA_KEY_MGMT_CCKM BIT(14)
 #define WPA_KEY_MGMT_OSEN BIT(15)
+#define WPA_KEY_MGMT_IEEE8021X_SUITE_B BIT(16)
+#define WPA_KEY_MGMT_IEEE8021X_SUITE_B_192 BIT(17)
 
 static inline int wpa_key_mgmt_wpa_ieee8021x(int akm)
 {
@@ -56,7 +61,9 @@ static inline int wpa_key_mgmt_wpa_ieee8021x(int akm)
 			 WPA_KEY_MGMT_FT_IEEE8021X |
 			 WPA_KEY_MGMT_CCKM |
 			 WPA_KEY_MGMT_OSEN |
-			 WPA_KEY_MGMT_IEEE8021X_SHA256));
+			 WPA_KEY_MGMT_IEEE8021X_SHA256 |
+			 WPA_KEY_MGMT_IEEE8021X_SUITE_B |
+			 WPA_KEY_MGMT_IEEE8021X_SUITE_B_192));
 }
 
 static inline int wpa_key_mgmt_wpa_psk(int akm)
@@ -85,7 +92,19 @@ static inline int wpa_key_mgmt_sha256(int akm)
 {
 	return !!(akm & (WPA_KEY_MGMT_PSK_SHA256 |
 			 WPA_KEY_MGMT_IEEE8021X_SHA256 |
-			 WPA_KEY_MGMT_OSEN));
+			 WPA_KEY_MGMT_OSEN |
+			 WPA_KEY_MGMT_IEEE8021X_SUITE_B));
+}
+
+static inline int wpa_key_mgmt_sha384(int akm)
+{
+	return !!(akm & WPA_KEY_MGMT_IEEE8021X_SUITE_B_192);
+}
+
+static inline int wpa_key_mgmt_suite_b(int akm)
+{
+	return !!(akm & (WPA_KEY_MGMT_IEEE8021X_SUITE_B |
+			 WPA_KEY_MGMT_IEEE8021X_SUITE_B_192));
 }
 
 static inline int wpa_key_mgmt_wpa(int akm)
@@ -105,6 +124,16 @@ static inline int wpa_key_mgmt_cckm(int akm)
 	return akm == WPA_KEY_MGMT_CCKM;
 }
 
+static inline int wpa_key_mgmt_wapi(int akm)
+{
+	return !!(akm & (WPA_KEY_MGMT_WAPI_PSK |
+			 WPA_KEY_MGMT_WAPI_CERT));
+}
+
+static inline int wpa_key_mgmt_wapi_psk(int akm)
+{
+	return !!(akm & (WPA_KEY_MGMT_WAPI_PSK));
+}
 
 #define WPA_PROTO_WPA BIT(0)
 #define WPA_PROTO_RSN BIT(1)
@@ -132,7 +161,43 @@ enum wpa_alg {
 	WPA_ALG_CCMP_256,
 	WPA_ALG_BIP_GMAC_128,
 	WPA_ALG_BIP_GMAC_256,
-	WPA_ALG_BIP_CMAC_256
+	WPA_ALG_BIP_CMAC_256,
+	WPA_ALG_AES,
+};
+
+/**
+ * enum wpa_cipher - Cipher suites
+ */
+enum wpa_cipher {
+	CIPHER_NONE,
+	CIPHER_WEP40,
+	CIPHER_TKIP,
+	CIPHER_CCMP,
+	CIPHER_WEP104,
+	CIPHER_GCMP,
+	CIPHER_SMS4,
+	CIPHER_AES_WAPI,
+};
+
+/**
+ * enum wpa_key_mgmt - Key management suites
+ */
+enum wpa_key_mgmt {
+	KEY_MGMT_802_1X,
+	KEY_MGMT_PSK,
+	KEY_MGMT_NONE,
+	KEY_MGMT_802_1X_NO_WPA,
+	KEY_MGMT_WPA_NONE,
+	KEY_MGMT_FT_802_1X,
+	KEY_MGMT_FT_PSK,
+	KEY_MGMT_802_1X_SHA256,
+	KEY_MGMT_PSK_SHA256,
+	KEY_MGMT_WPS,
+	KEY_MGMT_SAE,
+	KEY_MGMT_FT_SAE,
+	KEY_MGMT_WAPI_PSK,
+	KEY_MGMT_WAPI_CERT,
+	KEY_MGMT_CCKM
 };
 
 /**
@@ -294,10 +359,51 @@ enum wpa_ctrl_req_type {
 	WPA_CTRL_REQ_EAP_OTP,
 	WPA_CTRL_REQ_EAP_PASSPHRASE,
 	WPA_CTRL_REQ_SIM,
+	WPA_CTRL_REQ_PSK_PASSPHRASE,
 	NUM_WPA_CTRL_REQS
+};
+
+/**
+ * enum traffic_load - traffic load levels
+ *
+ * These enumeration values are used to indicate the current traffic load over
+ * all interfaces sharing the radio.
+ */
+enum traffic_load {
+	TRAFFIC_LOAD_LOW,
+	TRAFFIC_LOAD_MEDIUM,
+	TRAFFIC_LOAD_HIGH,
 };
 
 /* Maximum number of EAP methods to store for EAP server user information */
 #define EAP_MAX_METHODS 8
+
+enum mesh_plink_state {
+	PLINK_LISTEN = 1,
+	PLINK_OPEN_SENT,
+	PLINK_OPEN_RCVD,
+	PLINK_CNF_RCVD,
+	PLINK_ESTAB,
+	PLINK_HOLDING,
+	PLINK_BLOCKED,
+};
+
+/* P2P Mgmt interface disabled by config or control interface */
+#define WPA_P2P_MGMT_CTRL_DISABLED BIT(0)
+
+/* P2P Mgmt interface disabled since the underlying interface is disabled*/
+#define WPA_P2P_MGMT_IF_DISABLED BIT(1)
+
+/**
+ * Frequency priority constants
+ *
+ * A priority value is an integer between WPA_FREQ_PRIORITY_MIN (least
+ * preferable) and WPA_FREQ_PRIORITY_MAX (most preferable).
+ * By default all frequencies/channels are considered as having priority 10.
+ */
+#define WPA_FREQ_PRIORITY_MIN		0
+#define WPA_FREQ_PRIORITY_DEFAULT	10
+#define WPA_FREQ_PRIORITY_MAX		20
+#define WPA_FREQ_PRIORITY_LOW_LATENCY	(WPA_FREQ_PRIORITY_DEFAULT + 5)
 
 #endif /* DEFS_H */

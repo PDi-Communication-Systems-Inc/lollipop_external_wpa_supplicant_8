@@ -1,6 +1,8 @@
 /*
  * Wi-Fi Direct - P2P group operations
  * Copyright (c) 2009-2010, Atheros Communications
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -66,7 +68,7 @@ struct p2p_group * p2p_group_init(struct p2p_data *p2p,
 	group->group_formation = 1;
 	group->beacon_update = 1;
 	p2p_group_update_ies(group);
-	group->cfg->idle_update(group->cfg->cb_ctx, 1);
+	group->cfg->group_update(group->cfg->cb_ctx, 1);
 
 	return group;
 }
@@ -633,8 +635,7 @@ int p2p_group_notif_assoc(struct p2p_group *group, const u8 *addr,
 	if (group->num_members == group->cfg->max_clients)
 		group->beacon_update = 1;
 	p2p_group_update_ies(group);
-	if (group->num_members == 1)
-		group->cfg->idle_update(group->cfg->cb_ctx, 0);
+	group->cfg->group_update(group->cfg->cb_ctx, 0);
 
 	return 0;
 }
@@ -694,8 +695,8 @@ void p2p_group_notif_disassoc(struct p2p_group *group, const u8 *addr)
 		if (group->num_members == group->cfg->max_clients - 1)
 			group->beacon_update = 1;
 		p2p_group_update_ies(group);
-		if (group->num_members == 0)
-			group->cfg->idle_update(group->cfg->cb_ctx, 1);
+		group->cfg->group_update(group->cfg->cb_ctx,
+					 (group->num_members > 0) ? 0 : 1);
 	}
 }
 
@@ -756,6 +757,9 @@ static int p2p_match_dev_type_member(struct p2p_group_member *m,
 int p2p_group_match_dev_type(struct p2p_group *group, struct wpabuf *wps)
 {
 	struct p2p_group_member *m;
+
+	if (group == NULL)
+		return 0;
 
 	if (p2p_match_dev_type(group->p2p, wps))
 		return 1; /* Match with own device type */
@@ -981,7 +985,19 @@ u8 p2p_group_presence_req(struct p2p_group *group,
 
 unsigned int p2p_get_group_num_members(struct p2p_group *group)
 {
+	if (!group)
+		return 0;
+
 	return group->num_members;
+}
+
+
+int p2p_client_limit_reached(struct p2p_group *group)
+{
+	if (!group || !group->cfg)
+		return 1;
+
+	return group->num_members >= group->cfg->max_clients;
 }
 
 
@@ -1022,6 +1038,13 @@ int p2p_group_is_group_id_match(struct p2p_group *group, const u8 *group_id,
 	if (group_id_len != ETH_ALEN + group->cfg->ssid_len)
 		return 0;
 	if (os_memcmp(group_id, group->p2p->cfg->dev_addr, ETH_ALEN) != 0)
+		/*
+		 * Sending broadcast address actually violates the spec.
+		 * However, some testbeds send it, so we must allow it
+		 * in order to pass the certification tests.
+		 */
+		if (os_memcmp(group_id, broadcast_ether_addr, ETH_ALEN) != 0 &&
+		    os_memcmp(group_id, group->cfg->interface_addr, ETH_ALEN))
 		return 0;
 	return os_memcmp(group_id + ETH_ALEN, group->cfg->ssid,
 			 group->cfg->ssid_len) == 0;
@@ -1058,4 +1081,118 @@ void p2p_loop_on_all_groups(struct p2p_data *p2p,
 		if (!group_callback(p2p->groups[i], user_data))
 			break;
 	}
+}
+
+
+int p2p_group_get_common_channels(struct p2p_group *group,
+				  struct p2p_channels *common)
+{
+	struct p2p_channels res;
+	struct p2p_group_member *m;
+
+	if (!group || !common)
+		return -1;
+
+	os_memset(&res, 0, sizeof(res));
+	os_memcpy(common, &group->p2p->cfg->channels, sizeof(*common));
+
+	p2p_channels_dump(group->p2p,
+			  "Group Common freqs before iterating members",
+			  common);
+
+	for (m = group->members; m; m = m->next) {
+		struct p2p_device *dev;
+
+		dev = p2p_get_device(group->p2p, m->dev_addr);
+		if (!dev || dev->channels.reg_classes == 0)
+			continue;
+
+		p2p_channels_intersect(common,
+				       &dev->channels,
+				       &res);
+		memcpy(common, &res, sizeof(*common));
+	}
+
+	p2p_channels_dump(group->p2p, "Group Common Channels", common);
+
+	return 0;
+}
+
+
+int p2p_group_get_common_freqs(struct p2p_group *group,
+			       int *common_freqs,
+			       unsigned int *num)
+
+{
+	struct p2p_channels intersect;
+
+	if (!common_freqs || !num)
+		return -1;
+
+	os_memset(common_freqs, 0, *num * sizeof(int));
+	if (!p2p_group_get_common_channels(group, &intersect)) {
+		*num = p2p_channels_to_freqs(&intersect, common_freqs, *num);
+		return 0;
+	}
+
+	return -1;
+}
+
+
+int p2p_group_is_client_2ghz_only(struct p2p_group *group, const u8 *dev_addr)
+{
+	struct p2p_group_member *m;
+	struct p2p_device *dev;
+	const int classes_5ghz[] = { 115, 124, 0 };
+	unsigned int i, j;
+
+	if (!group)
+		return 0;
+
+	for (m = group->members; m; m = m->next)
+		if (os_memcmp(m->dev_addr, dev_addr, ETH_ALEN) == 0)
+			break;
+
+	if (!m)
+		return 0;
+
+	dev = p2p_get_device(group->p2p, m->dev_addr);
+	if (!dev || dev->channels.reg_classes == 0)
+		return 0;
+
+	for (j = 0; classes_5ghz[j]; j++) {
+		for (i = 0; i < dev->channels.reg_classes; i++) {
+			struct p2p_reg_class *c = &dev->channels.reg_class[i];
+
+			if (c->channels == 0)
+				continue;
+
+			if (c->reg_class == classes_5ghz[j])
+				return 0;
+		}
+	}
+
+	return 1;
+}
+
+
+int p2p_group_has_non_mobile_clients(struct p2p_group *group)
+
+{
+	struct p2p_group_member *m;
+
+	if (!group)
+		return 0;
+
+	for (m = group->members; m; m = m->next) {
+		struct p2p_device *dev;
+
+		dev = p2p_get_device(group->p2p, m->dev_addr);
+		if (!dev)
+			continue;
+
+		if (p2p_is_indoor_device(&dev->info))
+			return 1;
+	}
+	return 0;
 }

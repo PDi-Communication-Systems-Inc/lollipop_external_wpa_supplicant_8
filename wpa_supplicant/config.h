@@ -1,6 +1,8 @@
 /*
  * WPA Supplicant / Configuration file structures
  * Copyright (c) 2003-2012, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -15,11 +17,21 @@
 #else /* CONFIG_NO_SCAN_PROCESSING */
 #define DEFAULT_AP_SCAN 1
 #endif /* CONFIG_NO_SCAN_PROCESSING */
+#define DEFAULT_USER_MPM 1
+#define DEFAULT_MAX_PEER_LINKS 99
+#define DEFAULT_MESH_MAX_INACTIVITY 300
 #define DEFAULT_FAST_REAUTH 1
 #define DEFAULT_P2P_GO_INTENT 7
 #define DEFAULT_P2P_INTRA_BSS 1
-#define DEFAULT_P2P_GO_MAX_INACTIVITY (5 * 60)
-#define DEFAULT_P2P_OPTIMIZE_LISTEN_CHAN 0
+
+#define DEFAULT_P2P_INVITATION 1
+#define DEFAULT_P2P_SD 1
+#define DEFAULT_P2P_CONCURRENT_MODE 1
+
+#define DEFAULT_P2P_GO_MAX_INACTIVITY (1 * 60)
+#define DEFAULT_P2P_OPTIMIZE_LISTEN_CHAN 1
+#define DEFAULT_P2P_ADD_CLI_CHAN 1
+#define DEFAULT_P2P_ADD_CLI_CHAN_INDOOR 1
 #define DEFAULT_BSS_MAX_COUNT 200
 #define DEFAULT_BSS_EXPIRATION_AGE 180
 #define DEFAULT_BSS_EXPIRATION_SCAN_COUNT 2
@@ -28,9 +40,38 @@
 #define DEFAULT_SCAN_CUR_FREQ 0
 #define DEFAULT_P2P_SEARCH_DELAY 500
 #define DEFAULT_RAND_ADDR_LIFETIME 60
+#define DEFAULT_KEY_MGMT_OFFLOAD 1
+#define DEFAULT_CERT_IN_CB 1
+#define DEFAULT_P2P_GO_CTWINDOW 9
+#define DEFAULT_DISASSOC_LOW_ACK 1
+
+#define DEFAULT_GLOBAL_BGSCAN "simple:64:-72:300"
+#define DEFAULT_P2P_GO_HT40 1
+#define DEFAULT_P2P_GO_VHT 1
+
+/* enable TDLS auto-mode on Android automatically */
+#ifdef ANDROID
+#define DEFAULT_TDLS_AUTO_ENABLED 1
+#else
+#define DEFAULT_TDLS_AUTO_ENABLED 0
+#endif
+
+#ifdef CONFIG_TDLS_AUTO_MODE
+#define DEFAULT_TDLS_AUTO_RSSI_CONNECT_THRESHOLD -60
+#define DEFAULT_TDLS_AUTO_DATA_CONNECT_THRESHOLD 30000
+#define DEFAULT_TDLS_AUTO_FAST_CONNECT_PERIOD 500
+#define DEFAULT_TDLS_AUTO_SLOW_CONNECT_PERIOD 40000
+#define DEFAULT_TDLS_AUTO_DATA_TEARDOWN_THRESHOLD 8000
+#define DEFAULT_TDLS_AUTO_DATA_TEARDOWN_PERIOD 5000
+#define DEFAULT_TDLS_AUTO_RSSI_TEARDOWN_THRESHOLD -70
+#define DEFAULT_TDLS_AUTO_RSSI_TEARDOWN_PERIOD 1000
+#define DEFAULT_TDLS_AUTO_RSSI_TEARDOWN_COUNT 5
+#define DEFAULT_TDLS_AUTO_MAX_CONNECTED_PEERS 4
+#endif /* CONFIG_TDLS_AUTO_MODE */
 
 #include "config_ssid.h"
 #include "wps/wps.h"
+#include "common/ieee802_11_defs.h"
 #include "common/ieee802_11_common.h"
 
 
@@ -163,7 +204,7 @@ struct wpa_cred {
 	 * If set, this FQDN is used as a suffix match requirement for the AAA
 	 * server certificate in SubjectAltName dNSName element(s). If a
 	 * matching dNSName is found, this constraint is met. If no dNSName
-	 * values are present, this constraint is matched against SubjetName CN
+	 * values are present, this constraint is matched against SubjectName CN
 	 * using same suffix match comparison. Suffix match here means that the
 	 * host/domain name is compared one label at a time starting from the
 	 * top-level domain and all the labels in @domain_suffix_match shall be
@@ -235,7 +276,7 @@ struct wpa_cred {
 	char *phase2;
 
 	struct excluded_ssid {
-		u8 ssid[MAX_SSID_LEN];
+		u8 ssid[SSID_MAX_LEN];
 		size_t ssid_len;
 	} *excluded_ssid;
 	size_t num_excluded_ssid;
@@ -517,6 +558,15 @@ struct wpa_config {
 	char *pkcs11_module_path;
 
 	/**
+	 * openssl_ciphers - OpenSSL cipher string
+	 *
+	 * This is an OpenSSL specific configuration option for configuring the
+	 * default ciphers. If not set, "DEFAULT:!EXP:!LOW" is used as the
+	 * default.
+	 */
+	char *openssl_ciphers;
+
+	/**
 	 * pcsc_reader - PC/SC reader name prefix
 	 *
 	 * If not %NULL, PC/SC reader with a name that matches this prefix is
@@ -659,6 +709,15 @@ struct wpa_config {
 	char country[2];
 
 	/**
+	 * country_orig - Original country code.
+	 *
+	 * The country code can change during the lifetime of the
+	 * wpa_supplicant, due to updates coming from the driver/device, so
+	 * use an additional field to save the original country code.
+	 */
+	char country_orig[2];
+
+	/**
 	 * wps_cred_processing - Credential processing
 	 *
 	 *   0 = process received credentials internally
@@ -688,8 +747,13 @@ struct wpa_config {
 	struct p2p_channel *p2p_pref_chan;
 	struct wpa_freq_range_list p2p_no_go_freq;
 	int p2p_add_cli_chan;
+	int p2p_add_cli_chan_indoor;
 	int p2p_ignore_shared_freq;
 	int p2p_optimize_listen_chan;
+
+	int p2p_invitation;
+	int p2p_sd;
+	int p2p_concurrent_mode;
 
 	struct wpabuf *wps_vendor_ext_m1;
 
@@ -724,6 +788,40 @@ struct wpa_config {
 	 * generated at the GO.
 	 */
 	unsigned int p2p_passphrase_len;
+
+	/**
+	 * p2p_go_freq_change_policy - Defines the go frequency change policy
+	 *
+	 * This controls the behavior of the GO when there is a change in the
+	 * map of the currently used frequencies in case that more than 1
+	 * channel is supported.
+	 *
+	 * @P2P_GO_FREQ_MOVE_SCM: prefer working in a single channel mode if
+	 * possible. In case the GO is the only interface using
+	 * its frequency and there are other station interfaces on other
+	 * frequencies, the GO will migrate to one of these frequencies.
+	 *
+	 * @P2P_GO_FREQ_MOVE_SCM_PEER_SUPPORTS: same as P2P_GO_FREQ_MOVE_SCM,
+	 * but a transition is possible only in case that one of the other used
+	 * frequencies is one of the frequencies in the intersection of the
+	 * frequency list of the local device and the peer device.
+	 *
+	 * @P2P_GO_FREQ_MOVE_STAY: prefer to stay on the current frequency.
+	 *
+	 * @P2P_GO_FREQ_MOVE_SCM_ECSA: same as
+	 * P2P_GO_FREQ_MOVE_SCM_PEER_SUPPORTS but a transition is possible only
+	 * if all peers advertise eCSA support.
+	 */
+	enum {
+		P2P_GO_FREQ_MOVE_SCM = 0,
+		P2P_GO_FREQ_MOVE_SCM_PEER_SUPPORTS = 1,
+		P2P_GO_FREQ_MOVE_STAY = 2,
+		P2P_GO_FREQ_MOVE_SCM_ECSA = 3,
+		P2P_GO_FREQ_MOVE_MAX = P2P_GO_FREQ_MOVE_SCM_ECSA,
+
+	} p2p_go_freq_change_policy;
+
+#define DEFAULT_P2P_GO_FREQ_MOVE P2P_GO_FREQ_MOVE_SCM_ECSA
 
 	/**
 	 * bss_max_count - Maximum number of BSS entries to keep in memory
@@ -913,7 +1011,7 @@ struct wpa_config {
 	 * This will take effect for p2p_group_add, p2p_connect, and p2p_invite.
 	 * Note that regulatory constraints and driver capabilities are
 	 * consulted anyway, so setting it to 1 can't do real harm.
-	 * By default: 0 (disabled)
+	 * By default: DEFAULT_P2P_GO_HT40
 	 */
 	int p2p_go_ht40;
 
@@ -923,9 +1021,17 @@ struct wpa_config {
 	 * This will take effect for p2p_group_add, p2p_connect, and p2p_invite.
 	 * Note that regulatory constraints and driver capabilities are
 	 * consulted anyway, so setting it to 1 can't do real harm.
-	 * By default: 0 (disabled)
+	 * By default: DEFAULT_P2P_GO_VHT
 	 */
 	int p2p_go_vht;
+
+	/**
+	 * p2p_go_ctwindow - CTWindow to use when operating as GO
+	 *
+	 * By default: 0 (no CTWindow). Values 0-127 can be used to indicate
+	 * the length of the CTWindow in TUs.
+	 */
+	int p2p_go_ctwindow;
 
 	/**
 	 * p2p_disabled - Whether P2P operations are disabled for this interface
@@ -942,6 +1048,17 @@ struct wpa_config {
 	 * also for the group operation.
 	 */
 	int p2p_no_group_iface;
+
+	/**
+	 * p2p_cli_probe - enable/disable P2P CLI probe request handling
+	 *
+	 * If this parameter is set to 1, a connected P2P peer client will
+	 * receive and handle probe request frames. Setting this parameter to 0
+	 * disables this option. Default value: 0.
+	 * Note: setting this property at run time affect only on the following
+	 * iface state transitions to WPA_COMPLETED state.
+	 */
+	int p2p_cli_probe;
 
 	/**
 	 * okc - Whether to enable opportunistic key caching by default
@@ -986,6 +1103,67 @@ struct wpa_config {
 	 * blocks that do not specify beacon_int.
 	 */
 	int beacon_int;
+
+	/**
+	 * is the auto-mode flow used when a TDLS connection is initiated?
+	 */
+	int tdls_auto_enabled;
+
+#ifdef CONFIG_TDLS_AUTO_MODE
+	/**
+	 * min RSSI threshold for connection
+	 */
+	int tdls_auto_rssi_connect_threshold;
+
+	/**
+	 * connect to the peer if data-rate is above this threshold,
+	 * given in bps
+	 */
+	int tdls_auto_data_connect_threshold;
+
+	/**
+	 * polling interval for measuring data-rate and RSSI during
+	 * fast connection cycle (ms)
+	 */
+	int tdls_auto_fast_connect_period;
+
+	/**
+	 * polling interval for measuring data-rate and RSSI during
+	 * slow connection cycle (ms)
+	 */
+	int tdls_auto_slow_connect_period;
+
+	/**
+	 * teardown the peer if data-rate is below this threshold,
+	 * given in bps
+	 */
+	int tdls_auto_data_teardown_threshold;
+
+	/**
+	 * polling interval for measuring data-rate before teardown (ms)
+	 */
+	int tdls_auto_data_teardown_period;
+
+	/**
+	 * RSSI threshold under which the connection is torn down
+	 */
+	int tdls_auto_rssi_teardown_threshold;
+
+	/**
+	 * time between RSSI measurements for teardown (ms)
+	 */
+	int tdls_auto_rssi_teardown_period;
+
+	/**
+	 * number of RSSI measurments below the threshold needed for teardown
+	 */
+	int tdls_auto_rssi_teardown_count;
+
+	/**
+	 * max connected peers allowed
+	 */
+	int tdls_auto_max_connected_peers;
+#endif /* CONFIG_TDLS_AUTO_MODE */
 
 	/**
 	 * ap_vendor_elements: Vendor specific elements for Beacon/ProbeResp
@@ -1079,6 +1257,67 @@ struct wpa_config {
 	 * 2 = like 1, but maintain OUI (with local admin bit set)
 	 */
 	int preassoc_mac_addr;
+
+	/**
+	 * key_mgmt_offload - Use key management offload
+	 *
+	 * Key management offload should be used if the device supports it.
+	 * Key management offload is the capability of a device operating as
+	 * a station to do the exchange necessary to establish temporal keys
+	 * during initial RSN connection, after roaming, or during a PTK
+	 * rekeying operation.
+	 */
+	int key_mgmt_offload;
+
+	/**
+	 * user_mpm - MPM residency
+	 *
+	 * 0: MPM lives in driver.
+	 * 1: wpa_supplicant handles peering and station allocation.
+	 *
+	 * If AMPE or SAE is enabled, the MPM is always in userspace.
+	 */
+	int user_mpm;
+
+	/**
+	 * max_peer_links - Maximum number of peer links
+	 *
+	 * Maximum number of mesh peering currently maintained by the STA.
+	 */
+	int max_peer_links;
+
+	/**
+	 * cert_in_cb - Whether to include a peer certificate dump in events
+	 *
+	 * This controls whether peer certificates for authentication server and
+	 * its certificate chain are included in EAP peer certificate events.
+	 */
+	int cert_in_cb;
+
+	/**
+	 * mesh_max_inactivity - Timeout in seconds to detect STA inactivity
+	 *
+	 * This timeout value is used in mesh STA to clean up inactive stations.
+	 * By default: 300 seconds.
+	 */
+	int mesh_max_inactivity;
+
+	/**
+	 * passive_scan - Whether to force passive scan for network connection
+	 *
+	 * This parameter can be used to force only passive scanning to be used
+	 * for network connection cases. It should be noted that this will slow
+	 * down scan operations and reduce likelihood of finding the AP. In
+	 * addition, some use cases will override this due to functional
+	 * requirements, e.g., for finding an AP that uses hidden SSID
+	 * (scan_ssid=1) or P2P device discovery.
+	 */
+	int passive_scan;
+
+	/**
+	 * reassoc_same_bss_optim - Whether to optimize reassoc-to-same-BSS
+	 */
+	int reassoc_same_bss_optim;
 };
 
 
@@ -1097,6 +1336,11 @@ int wpa_config_set(struct wpa_ssid *ssid, const char *var, const char *value,
 		   int line);
 int wpa_config_set_quoted(struct wpa_ssid *ssid, const char *var,
 			  const char *value);
+int wpa_config_dump_values(struct wpa_config *config, char *buf,
+			   size_t buflen);
+int wpa_config_get_value(const char *name, struct wpa_config *config,
+			 char *buf, size_t buflen);
+
 char ** wpa_config_get_all(struct wpa_ssid *ssid, int get_keys);
 char * wpa_config_get(struct wpa_ssid *ssid, const char *var);
 char * wpa_config_get_no_key(struct wpa_ssid *ssid, const char *var);

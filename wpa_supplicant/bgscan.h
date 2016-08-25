@@ -1,6 +1,8 @@
 /*
  * WPA Supplicant - background scan and roaming interface
  * Copyright (c) 2009-2010, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -19,12 +21,18 @@ struct bgscan_ops {
 		       const struct wpa_ssid *ssid);
 	void (*deinit)(void *priv);
 
-	int (*notify_scan)(void *priv, struct wpa_scan_results *scan_res);
+	int (*notify_scan)(void *priv, struct wpa_scan_results *scan_res,
+			   int notify_only);
 	void (*notify_beacon_loss)(void *priv);
 	void (*notify_signal_change)(void *priv, int above,
 				     int current_signal,
 				     int current_noise,
 				     int current_txrate);
+	void (*notify_tcm_changed)(void *priv,
+				   enum traffic_load traffic_load,
+				   int vi_vo_present);
+	void (*notify_scan_trigger)(void *priv,
+				    struct wpa_driver_scan_params *params);
 };
 
 #ifdef CONFIG_BGSCAN
@@ -33,11 +41,16 @@ int bgscan_init(struct wpa_supplicant *wpa_s, struct wpa_ssid *ssid,
 		const char *name);
 void bgscan_deinit(struct wpa_supplicant *wpa_s);
 int bgscan_notify_scan(struct wpa_supplicant *wpa_s,
-		       struct wpa_scan_results *scan_res);
+		       struct wpa_scan_results *scan_res, int notify_only);
 void bgscan_notify_beacon_loss(struct wpa_supplicant *wpa_s);
 void bgscan_notify_signal_change(struct wpa_supplicant *wpa_s, int above,
 				 int current_signal, int current_noise,
 				 int current_txrate);
+void bgscan_notify_tcm_changed(struct wpa_supplicant *wpa_s,
+			       enum traffic_load traffic_load,
+			       int vi_vo_present);
+void bgscan_notify_scan_trigger(struct wpa_supplicant *wpa_s,
+				struct wpa_driver_scan_params *params);
 
 #else /* CONFIG_BGSCAN */
 
@@ -52,7 +65,8 @@ static inline void bgscan_deinit(struct wpa_supplicant *wpa_s)
 }
 
 static inline int bgscan_notify_scan(struct wpa_supplicant *wpa_s,
-				     struct wpa_scan_results *scan_res)
+				     struct wpa_scan_results *scan_res,
+				     int notify_only)
 {
 	return 0;
 }
@@ -65,6 +79,18 @@ static inline void bgscan_notify_signal_change(struct wpa_supplicant *wpa_s,
 					       int above, int current_signal,
 					       int current_noise,
 					       int current_txrate)
+{
+}
+
+static inline void bgscan_notify_tcm_changed(struct wpa_supplicant *wpa_s,
+					     enum traffic_load traffic_load,
+					     int vi_vo_present)
+{
+}
+
+static inline
+void bgscan_notify_scan_trigger(struct wpa_supplicant *wpa_s,
+				struct wpa_driver_scan_params *params)
 {
 }
 

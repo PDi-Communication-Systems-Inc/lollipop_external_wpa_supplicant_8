@@ -1,6 +1,8 @@
 /*
  * hostapd / Station table
  * Copyright (c) 2002-2011, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -8,6 +10,13 @@
 
 #ifndef STA_INFO_H
 #define STA_INFO_H
+
+#ifdef CONFIG_MESH
+/* needed for mesh_plink_state enum */
+#include "common/defs.h"
+#endif /* CONFIG_MESH */
+
+#include "list.h"
 
 /* STA flags */
 #define WLAN_STA_AUTH BIT(0)
@@ -28,6 +37,7 @@
 #define WLAN_STA_VHT BIT(18)
 #define WLAN_STA_WNM_SLEEP_MODE BIT(19)
 #define WLAN_STA_VHT_OPMODE_ENABLED BIT(20)
+#define WLAN_STA_VENDOR_VHT BIT(21)
 #define WLAN_STA_PENDING_DISASSOC_CB BIT(29)
 #define WLAN_STA_PENDING_DEAUTH_CB BIT(30)
 #define WLAN_STA_NONERP BIT(31)
@@ -41,6 +51,8 @@ struct sta_info {
 	struct sta_info *next; /* next entry in sta list */
 	struct sta_info *hnext; /* next entry in hash table list */
 	u8 addr[6];
+	be32 ipaddr;
+	struct dl_list ip6addr; /* list head for struct ip6addr */
 	u16 aid; /* STA's unique AID (1 .. 2007) or 0 if not yet assigned */
 	u32 flags; /* Bitfield of WLAN_STA_* */
 	u16 capability;
@@ -48,6 +60,20 @@ struct sta_info {
 	u8 supported_rates[WLAN_SUPP_RATES_MAX];
 	int supported_rates_len;
 	u8 qosinfo; /* Valid when WLAN_STA_WMM is set */
+
+#ifdef CONFIG_MESH
+	enum mesh_plink_state plink_state;
+	u16 peer_lid;
+	u16 my_lid;
+	u16 mpm_close_reason;
+	int mpm_retries;
+	u8 my_nonce[32];
+	u8 peer_nonce[32];
+	u8 aek[32];	/* SHA256 digest length */
+	u8 mtk[16];
+	u8 mgtk[16];
+	u8 sae_auth_retry;
+#endif /* CONFIG_MESH */
 
 	unsigned int nonerp_set:1;
 	unsigned int no_short_slot_time_set:1;
@@ -61,6 +87,8 @@ struct sta_info {
 	unsigned int remediation:1;
 	unsigned int hs20_deauth_requested:1;
 	unsigned int session_timeout_set:1;
+	unsigned int radius_das_match:1;
+	unsigned int ecsa_supported:1;
 
 	u16 auth_alg;
 
@@ -92,10 +120,8 @@ struct sta_info {
 	struct wpa_state_machine *wpa_sm;
 	struct rsn_preauth_interface *preauth_iface;
 
-	struct hostapd_ssid *ssid; /* SSID selection based on (Re)AssocReq */
-	struct hostapd_ssid *ssid_probe; /* SSID selection based on ProbeReq */
-
-	int vlan_id;
+	int vlan_id; /* 0: none, >0: VID */
+	int vlan_id_bound; /* updated by ap_sta_bind_vlan() */
 	 /* PSKs from RADIUS authentication server */
 	struct hostapd_sta_wpa_psk_short *psk;
 
@@ -138,6 +164,12 @@ struct sta_info {
 #endif /* CONFIG_SAE */
 
 	u32 session_timeout; /* valid only if session_timeout_set == 1 */
+
+	/* Last Authentication/(Re)Association Request/Action frame sequence
+	 * control */
+	u16 last_seq_ctrl;
+	/* Last Authentication/(Re)Association Request/Action frame subtype */
+	u8 last_subtype;
 };
 
 
@@ -167,6 +199,7 @@ struct sta_info * ap_get_sta(struct hostapd_data *hapd, const u8 *sta);
 struct sta_info * ap_get_sta_p2p(struct hostapd_data *hapd, const u8 *addr);
 void ap_sta_hash_add(struct hostapd_data *hapd, struct sta_info *sta);
 void ap_free_sta(struct hostapd_data *hapd, struct sta_info *sta);
+void ap_sta_ip6addr_del(struct hostapd_data *hapd, struct sta_info *sta);
 void hostapd_free_stas(struct hostapd_data *hapd);
 void ap_handle_timer(void *eloop_ctx, void *timeout_ctx);
 void ap_sta_replenish_timeout(struct hostapd_data *hapd, struct sta_info *sta,
@@ -186,8 +219,7 @@ void ap_sta_deauthenticate(struct hostapd_data *hapd, struct sta_info *sta,
 int ap_sta_wps_cancel(struct hostapd_data *hapd,
 		      struct sta_info *sta, void *ctx);
 #endif /* CONFIG_WPS */
-int ap_sta_bind_vlan(struct hostapd_data *hapd, struct sta_info *sta,
-		     int old_vlanid);
+int ap_sta_bind_vlan(struct hostapd_data *hapd, struct sta_info *sta);
 void ap_sta_start_sa_query(struct hostapd_data *hapd, struct sta_info *sta);
 void ap_sta_stop_sa_query(struct hostapd_data *hapd, struct sta_info *sta);
 int ap_check_sa_query_timeout(struct hostapd_data *hapd, struct sta_info *sta);

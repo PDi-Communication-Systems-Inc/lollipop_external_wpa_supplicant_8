@@ -1,6 +1,8 @@
 /*
  * WPA Supplicant - background scan and roaming module: learn
  * Copyright (c) 2009-2010, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -294,7 +296,7 @@ static void bgscan_learn_timeout(void *eloop_ctx, void *timeout_ctx)
 			int ret;
 			ret = os_snprintf(pos, msg + sizeof(msg) - pos, " %d",
 					  freqs[i]);
-			if (ret < 0 || ret >= msg + sizeof(msg) - pos)
+			if (os_snprintf_error(msg + sizeof(msg) - pos, ret))
 				break;
 			pos += ret;
 		}
@@ -423,8 +425,8 @@ static void * bgscan_learn_init(struct wpa_supplicant *wpa_s,
 	data->scan_interval = data->short_interval;
 	if (data->signal_threshold) {
 		/* Poll for signal info to set initial scan interval */
-		struct wpa_signal_info siginfo;
-		if (wpa_drv_signal_poll(wpa_s, &siginfo) == 0 &&
+		struct wpa_chan_info siginfo;
+		if (wpa_drv_channel_poll(wpa_s, &siginfo) == 0 &&
 		    siginfo.current_signal >= data->signal_threshold)
 			data->scan_interval = data->long_interval;
 	}
@@ -482,13 +484,22 @@ static int bgscan_learn_bss_match(struct bgscan_learn_data *data,
 
 
 static int bgscan_learn_notify_scan(void *priv,
-				    struct wpa_scan_results *scan_res)
+				    struct wpa_scan_results *scan_res,
+				    int notify_only)
 {
 	struct bgscan_learn_data *data = priv;
 	size_t i, j;
 #define MAX_BSS 50
 	u8 bssid[MAX_BSS * ETH_ALEN];
 	size_t num_bssid = 0;
+
+	/*
+	 * If AP selection did not run on this scan results, do not cancel
+	 * bgscan timeout. It is needed so that AP selection will run on the
+	 * requested bgscan interval.
+	 */
+	if (notify_only)
+		return 0;
 
 	wpa_printf(MSG_DEBUG, "bgscan learn: scan result notification");
 

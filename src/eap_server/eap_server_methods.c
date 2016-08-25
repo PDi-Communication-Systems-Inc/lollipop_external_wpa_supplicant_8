@@ -1,6 +1,8 @@
 /*
  * EAP server method registration
  * Copyright (c) 2004-2009, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -153,7 +155,7 @@ void eap_server_unregister_methods(void)
  * eap_server_get_name - Get EAP method name for the given EAP type
  * @vendor: EAP Vendor-Id (0 = IETF)
  * @type: EAP method type
- * Returns: EAP method name, e.g., TLS, or %NULL if not found
+ * Returns: EAP method name, e.g., TLS, or "unknown" if not found
  *
  * This function maps EAP type numbers into EAP type names based on the list of
  * EAP methods included in the build.
@@ -167,5 +169,5 @@ const char * eap_server_get_name(int vendor, EapType type)
 		if (m->vendor == vendor && m->method == type)
 			return m->name;
 	}
-	return NULL;
+	return "unknown";
 }

@@ -1,6 +1,8 @@
 /*
  * hostapd / IEEE 802.11 Management
  * Copyright (c) 2002-2012, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -68,7 +70,8 @@ void ieee802_11_send_sa_query_req(struct hostapd_data *hapd,
 	os_memcpy(mgmt.u.action.u.sa_query_req.trans_id, trans_id,
 		  WLAN_SA_QUERY_TR_ID_LEN);
 	end = mgmt.u.action.u.sa_query_req.trans_id + WLAN_SA_QUERY_TR_ID_LEN;
-	if (hostapd_drv_send_mlme(hapd, &mgmt, end - (u8 *) &mgmt, 0) < 0)
+	if (hostapd_drv_send_mlme(hapd, &mgmt, end - (u8 *)&mgmt, 0, NULL, 0) <
+	    0)
 		wpa_printf(MSG_INFO, "ieee802_11_send_sa_query_req: send failed");
 }
 
@@ -106,7 +109,8 @@ static void ieee802_11_send_sa_query_resp(struct hostapd_data *hapd,
 	os_memcpy(resp.u.action.u.sa_query_req.trans_id, trans_id,
 		  WLAN_SA_QUERY_TR_ID_LEN);
 	end = resp.u.action.u.sa_query_req.trans_id + WLAN_SA_QUERY_TR_ID_LEN;
-	if (hostapd_drv_send_mlme(hapd, &resp, end - (u8 *) &resp, 0) < 0)
+	if (hostapd_drv_send_mlme(hapd, &resp, end - (u8 *)&resp, 0, NULL, 0) <
+	    0)
 		wpa_printf(MSG_INFO, "ieee80211_mgmt_sa_query_request: send failed");
 }
 
@@ -172,8 +176,12 @@ static void hostapd_ext_capab_byte(struct hostapd_data *hapd, u8 *pos, int idx)
 	case 0: /* Bits 0-7 */
 		if (hapd->iconf->obss_interval)
 			*pos |= 0x01; /* Bit 0 - Coexistence management */
+		if (hapd->iface->csa_supported)
+			*pos |= 0x04; /* Bit 2 - Extended Channel Switching */
 		break;
 	case 1: /* Bits 8-15 */
+		if (hapd->conf->proxy_arp)
+			*pos |= 0x10; /* Bit 12 - Proxy ARP */
 		break;
 	case 2: /* Bits 16-23 */
 		if (hapd->conf->wnm_sleep_mode)

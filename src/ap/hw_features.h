@@ -3,6 +3,8 @@
  * Copyright 2002-2003, Instant802 Networks, Inc.
  * Copyright 2005-2006, Devicescape Software, Inc.
  * Copyright (c) 2008-2011, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -24,6 +26,14 @@ int hostapd_check_ht_capab(struct hostapd_iface *iface);
 int hostapd_prepare_rates(struct hostapd_iface *iface,
 			  struct hostapd_hw_modes *mode);
 void hostapd_stop_setup_timers(struct hostapd_iface *iface);
+int hostapd_freq_flags(struct hostapd_iface *iface, int freq,
+		       unsigned int flags);
+u8 hostapd_hw_get_max_tx_power(struct hostapd_iface *iface, int freq);
+int hostapd_is_valid_freq(struct hostapd_hw_modes *modes, u16 num_modes,
+			  int freq);
+
+int hostapd_mode_allows_80mhz_chan(struct hostapd_hw_modes *mode);
+
 #else /* NEED_AP_MLME */
 static inline void
 hostapd_free_hw_features(struct hostapd_hw_modes *hw_features,
@@ -32,6 +42,11 @@ hostapd_free_hw_features(struct hostapd_hw_modes *hw_features,
 }
 
 static inline int hostapd_get_hw_features(struct hostapd_iface *iface)
+{
+	return -1;
+}
+
+static inline int hostapd_acs_completed(struct hostapd_iface *iface, int err)
 {
 	return -1;
 }
@@ -64,6 +79,25 @@ static inline int hostapd_prepare_rates(struct hostapd_iface *iface,
 
 static inline void hostapd_stop_setup_timers(struct hostapd_iface *iface)
 {
+}
+
+static inline int hostapd_freq_flags(struct hostapd_iface *iface, int freq,
+				     unsigned int flags)
+{
+	return 0;
+}
+
+static inline u8
+hostapd_hw_get_max_tx_power(struct hostapd_iface *iface, int freq)
+{
+	return 0;
+}
+
+static inline int
+hostapd_is_valid_freq(struct hostapd_hw_modes *modes, u16 num_modes,
+		      int freq)
+{
+	return 0;
 }
 
 #endif /* NEED_AP_MLME */

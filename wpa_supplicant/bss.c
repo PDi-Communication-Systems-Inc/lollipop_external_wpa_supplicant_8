@@ -1,6 +1,9 @@
 /*
  * BSS table
+ * Copyright (c) 2009-2015, Jouni Malinen <j@w1.fi>
  * Copyright (c) 2009-2012, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -17,6 +20,7 @@
 #include "notify.h"
 #include "scan.h"
 #include "bss.h"
+#include "ap/hw_features.h"
 
 
 /**
@@ -85,6 +89,7 @@ static struct wpa_bss_anqp * wpa_bss_anqp_clone(struct wpa_bss_anqp *anqp)
 
 #define ANQP_DUP(f) if (anqp->f) n->f = wpabuf_dup(anqp->f)
 #ifdef CONFIG_INTERWORKING
+	ANQP_DUP(capability_list);
 	ANQP_DUP(venue_name);
 	ANQP_DUP(network_auth_type);
 	ANQP_DUP(roaming_consortium);
@@ -94,6 +99,7 @@ static struct wpa_bss_anqp * wpa_bss_anqp_clone(struct wpa_bss_anqp *anqp)
 	ANQP_DUP(domain_name);
 #endif /* CONFIG_INTERWORKING */
 #ifdef CONFIG_HS20
+	ANQP_DUP(hs20_capability_list);
 	ANQP_DUP(hs20_operator_friendly_name);
 	ANQP_DUP(hs20_wan_metrics);
 	ANQP_DUP(hs20_connection_capability);
@@ -154,6 +160,7 @@ static void wpa_bss_anqp_free(struct wpa_bss_anqp *anqp)
 	}
 
 #ifdef CONFIG_INTERWORKING
+	wpabuf_free(anqp->capability_list);
 	wpabuf_free(anqp->venue_name);
 	wpabuf_free(anqp->network_auth_type);
 	wpabuf_free(anqp->roaming_consortium);
@@ -163,6 +170,7 @@ static void wpa_bss_anqp_free(struct wpa_bss_anqp *anqp)
 	wpabuf_free(anqp->domain_name);
 #endif /* CONFIG_INTERWORKING */
 #ifdef CONFIG_HS20
+	wpabuf_free(anqp->hs20_capability_list);
 	wpabuf_free(anqp->hs20_operator_friendly_name);
 	wpabuf_free(anqp->hs20_wan_metrics);
 	wpabuf_free(anqp->hs20_connection_capability);
@@ -282,6 +290,8 @@ static void wpa_bss_copy_res(struct wpa_bss *dst, struct wpa_scan_res *src,
 	dst->noise = src->noise;
 	dst->level = src->level;
 	dst->tsf = src->tsf;
+	dst->est_throughput = src->est_throughput;
+	dst->snr = src->snr;
 
 	calculate_update_time(fetch_time, src->age, &dst->last_update);
 }
@@ -306,8 +316,9 @@ static int wpa_bss_known(struct wpa_supplicant *wpa_s, struct wpa_bss *bss)
 static int wpa_bss_in_use(struct wpa_supplicant *wpa_s, struct wpa_bss *bss)
 {
 	return bss == wpa_s->current_bss ||
-		os_memcmp(bss->bssid, wpa_s->bssid, ETH_ALEN) == 0 ||
-		os_memcmp(bss->bssid, wpa_s->pending_bssid, ETH_ALEN) == 0;
+		(!is_zero_ether_addr(bss->bssid) &&
+		 (os_memcmp(bss->bssid, wpa_s->bssid, ETH_ALEN) == 0 ||
+		  os_memcmp(bss->bssid, wpa_s->pending_bssid, ETH_ALEN) == 0));
 }
 
 
@@ -391,7 +402,7 @@ static struct wpa_bss * wpa_bss_add(struct wpa_supplicant *wpa_s,
 
 
 static int are_ies_equal(const struct wpa_bss *old,
-			 const struct wpa_scan_res *new, u32 ie)
+			 const struct wpa_scan_res *new_res, u32 ie)
 {
 	const u8 *old_ie, *new_ie;
 	struct wpabuf *old_ie_buff = NULL;
@@ -401,19 +412,19 @@ static int are_ies_equal(const struct wpa_bss *old,
 	switch (ie) {
 	case WPA_IE_VENDOR_TYPE:
 		old_ie = wpa_bss_get_vendor_ie(old, ie);
-		new_ie = wpa_scan_get_vendor_ie(new, ie);
+		new_ie = wpa_scan_get_vendor_ie(new_res, ie);
 		is_multi = 0;
 		break;
 	case WPS_IE_VENDOR_TYPE:
 		old_ie_buff = wpa_bss_get_vendor_ie_multi(old, ie);
-		new_ie_buff = wpa_scan_get_vendor_ie_multi(new, ie);
+		new_ie_buff = wpa_scan_get_vendor_ie_multi(new_res, ie);
 		is_multi = 1;
 		break;
 	case WLAN_EID_RSN:
 	case WLAN_EID_SUPP_RATES:
 	case WLAN_EID_EXT_SUPP_RATES:
 		old_ie = wpa_bss_get_ie(old, ie);
-		new_ie = wpa_scan_get_ie(new, ie);
+		new_ie = wpa_scan_get_ie(new_res, ie);
 		is_multi = 0;
 		break;
 	default:
@@ -447,15 +458,15 @@ static int are_ies_equal(const struct wpa_bss *old,
 
 
 static u32 wpa_bss_compare_res(const struct wpa_bss *old,
-			       const struct wpa_scan_res *new)
+			       const struct wpa_scan_res *new_res)
 {
 	u32 changes = 0;
-	int caps_diff = old->caps ^ new->caps;
+	int caps_diff = old->caps ^ new_res->caps;
 
-	if (old->freq != new->freq)
+	if (old->freq != new_res->freq)
 		changes |= WPA_BSS_FREQ_CHANGED_FLAG;
 
-	if (old->level != new->level)
+	if (old->level != new_res->level)
 		changes |= WPA_BSS_SIGNAL_CHANGED_FLAG;
 
 	if (caps_diff & IEEE80211_CAP_PRIVACY)
@@ -464,22 +475,22 @@ static u32 wpa_bss_compare_res(const struct wpa_bss *old,
 	if (caps_diff & IEEE80211_CAP_IBSS)
 		changes |= WPA_BSS_MODE_CHANGED_FLAG;
 
-	if (old->ie_len == new->ie_len &&
-	    os_memcmp(old + 1, new + 1, old->ie_len) == 0)
+	if (old->ie_len == new_res->ie_len &&
+	    os_memcmp(old + 1, new_res + 1, old->ie_len) == 0)
 		return changes;
 	changes |= WPA_BSS_IES_CHANGED_FLAG;
 
-	if (!are_ies_equal(old, new, WPA_IE_VENDOR_TYPE))
+	if (!are_ies_equal(old, new_res, WPA_IE_VENDOR_TYPE))
 		changes |= WPA_BSS_WPAIE_CHANGED_FLAG;
 
-	if (!are_ies_equal(old, new, WLAN_EID_RSN))
+	if (!are_ies_equal(old, new_res, WLAN_EID_RSN))
 		changes |= WPA_BSS_RSNIE_CHANGED_FLAG;
 
-	if (!are_ies_equal(old, new, WPS_IE_VENDOR_TYPE))
+	if (!are_ies_equal(old, new_res, WPS_IE_VENDOR_TYPE))
 		changes |= WPA_BSS_WPS_CHANGED_FLAG;
 
-	if (!are_ies_equal(old, new, WLAN_EID_SUPP_RATES) ||
-	    !are_ies_equal(old, new, WLAN_EID_EXT_SUPP_RATES))
+	if (!are_ies_equal(old, new_res, WLAN_EID_SUPP_RATES) ||
+	    !are_ies_equal(old, new_res, WLAN_EID_EXT_SUPP_RATES))
 		changes |= WPA_BSS_RATES_CHANGED_FLAG;
 
 	return changes;
@@ -620,7 +631,7 @@ void wpa_bss_update_scan_res(struct wpa_supplicant *wpa_s,
 			     struct wpa_scan_res *res,
 			     struct os_reltime *fetch_time)
 {
-	const u8 *ssid, *p2p;
+	const u8 *ssid, *p2p, *mesh;
 	struct wpa_bss *bss;
 
 	if (wpa_s->conf->ignore_old_scan_res) {
@@ -645,7 +656,7 @@ void wpa_bss_update_scan_res(struct wpa_supplicant *wpa_s,
 			MACSTR, MAC2STR(res->bssid));
 		return;
 	}
-	if (ssid[1] > 32) {
+	if (ssid[1] > SSID_MAX_LEN) {
 		wpa_dbg(wpa_s, MSG_DEBUG, "BSS: Too long SSID IE included for "
 			MACSTR, MAC2STR(res->bssid));
 		return;
@@ -670,6 +681,11 @@ void wpa_bss_update_scan_res(struct wpa_supplicant *wpa_s,
 
 	/* TODO: add option for ignoring BSSes we are not interested in
 	 * (to save memory) */
+
+	mesh = wpa_scan_get_ie(res, WLAN_EID_MESH_ID);
+	if (mesh && mesh[1] <= SSID_MAX_LEN)
+		ssid = mesh;
+
 	bss = wpa_bss_get(wpa_s, res->bssid, ssid + 2, ssid[1]);
 	if (bss == NULL)
 		bss = wpa_bss_add(wpa_s, ssid + 2, ssid[1], res, fetch_time);
@@ -866,6 +882,29 @@ void wpa_bss_flush(struct wpa_supplicant *wpa_s)
 
 
 /**
+ * wpa_bss_flush_invalid_freqs - Flush all BSS entries on invalid freqs
+ * @wpa_s: Pointer to wpa_supplicant data
+ */
+void wpa_bss_flush_invalid_freqs(struct wpa_supplicant *wpa_s)
+{
+	struct wpa_bss *bss, *n;
+
+	/* flush invalid APs in the scan cache of the kernel */
+	wpa_s->clear_driver_scan_cache = 1;
+
+	dl_list_for_each_safe(bss, n, &wpa_s->bss, struct wpa_bss, list) {
+		if (wpa_bss_in_use(wpa_s, bss))
+			continue;
+
+		if (!(hostapd_is_valid_freq(wpa_s->hw.modes,
+					    wpa_s->hw.num_modes,
+					    bss->freq)))
+			wpa_bss_remove(wpa_s, bss, __func__);
+	}
+}
+
+
+/**
  * wpa_bss_deinit - Deinitialize BSS table
  * @wpa_s: Pointer to wpa_supplicant data
  */
@@ -1034,6 +1073,7 @@ const u8 * wpa_bss_get_vendor_ie(const struct wpa_bss *bss, u32 vendor_type)
 	while (pos + 1 < end) {
 		if (pos + 2 + pos[1] > end)
 			break;
+
 		if (pos[0] == WLAN_EID_VENDOR_SPECIFIC && pos[1] >= 4 &&
 		    vendor_type == WPA_GET_BE32(&pos[2]))
 			return pos;
@@ -1073,6 +1113,33 @@ const u8 * wpa_bss_get_vendor_ie_beacon(const struct wpa_bss *bss,
 			break;
 		if (pos[0] == WLAN_EID_VENDOR_SPECIFIC && pos[1] >= 4 &&
 		    vendor_type == WPA_GET_BE32(&pos[2]))
+			return pos;
+		pos += 2 + pos[1];
+	}
+
+	return NULL;
+}
+
+/**
+ * wpa_bss_get_vendor_ie_subtype - Fetch an information element that is a
+ * subtype of a vendor information element from a BSS entry.
+ * @bss: BSS table entry
+ * @vendor_type: Vendor type (four octets starting the IE payload)
+ * @subtype: the requested subtype
+ * Returns: Pointer to the information element (id field) or %NULL if not found
+ */
+const u8 *wpa_bss_get_vendor_ie_subtype(const struct wpa_bss *bss,
+					u32 vendor_type, u32 subtype)
+{
+	const u8 *end, *pos;
+
+	pos = (const u8 *)(bss + 1);
+	end = pos + bss->ie_len;
+
+	while (pos + 1 < end) {
+		if (pos[0] == WLAN_EID_VENDOR_SPECIFIC && pos[1] >= 4 &&
+		    vendor_type == WPA_GET_BE24(&pos[2]) &&
+		    subtype == pos[5])
 			return pos;
 		pos += 2 + pos[1];
 	}
@@ -1227,4 +1294,62 @@ int wpa_bss_get_bit_rates(const struct wpa_bss *bss, u8 **rates)
 
 	*rates = r;
 	return len;
+}
+
+static u8 get_country_ie_max_power(const u8 *ie, int freq)
+{
+	u8 channel;
+	struct country_ie_triplet *triplet;
+	int i, triplets_len, chan_increment = 1;
+	enum hostapd_hw_mode mode;
+
+	mode = ieee80211_freq_to_chan(freq, &channel);
+	if (mode == NUM_HOSTAPD_MODES)
+		return 0; /* Unknown channel */
+	else if (mode == HOSTAPD_MODE_IEEE80211A)
+		chan_increment = 4;
+
+	for (triplet = (void *)(ie + 5), triplets_len = ie[1] - 3;
+	     triplets_len >= 3; triplet++, triplets_len -= 3) {
+		u8 first_channel = triplet->chans.first_channel;
+
+		/*
+		 * If the First channel number/Operating extention is identifier
+		 * octet has a positive integer value of 201 or greater, then
+		 * its an operating class triplet. Not supported for now.
+		 */
+		if (first_channel >= 201)
+			continue;
+
+		for (i = 0; i < triplet->chans.num_channels; i++) {
+			if (first_channel + i * chan_increment == channel)
+				return triplet->chans.max_power;
+		}
+	}
+
+	return 0;
+}
+
+u8 wpa_bss_get_max_power(const struct wpa_bss *bss)
+{
+	const u8 *ie;
+	u8 max_tx_power;
+
+	ie = wpa_bss_get_ie(bss, WLAN_EID_COUNTRY);
+	if (!ie)
+		return 0;
+
+	max_tx_power = get_country_ie_max_power(ie, bss->freq);
+	ie = wpa_bss_get_ie(bss, WLAN_EID_PWR_CONSTRAINT);
+
+	/*
+	 * The local maximum transmit power for a channel is defined as the
+	 * maximum transmit power level specified for the channel in the Country
+	 * element minus the local power constraint specified for the channel in
+	 * the Power Constraint element (802.11-2012 spec, chapter 8.4.2.16).
+	 */
+	if (max_tx_power == 0 || !ie)
+		return max_tx_power;
+	else
+		return (max_tx_power - ie[2]) > 0 ? max_tx_power - ie[2] : 0;
 }

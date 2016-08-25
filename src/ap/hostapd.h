@@ -1,6 +1,8 @@
 /*
  * hostapd / Initialization and configuration
- * Copyright (c) 2002-2013, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2002-2014, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -10,6 +12,7 @@
 #define HOSTAPD_H
 
 #include "common/defs.h"
+#include "utils/list.h"
 #include "ap_config.h"
 #include "drivers/driver.h"
 
@@ -22,6 +25,9 @@ struct ieee80211_ht_capabilities;
 struct full_dynamic_vlan;
 enum wps_event;
 union wps_event_data;
+#ifdef CONFIG_MESH
+struct mesh_conf;
+#endif /* CONFIG_MESH */
 
 struct hostapd_iface;
 
@@ -101,6 +107,8 @@ struct hostapd_data {
 	struct hostapd_bss_config *conf;
 	int interface_added; /* virtual interface added for this BSS */
 	unsigned int started:1;
+	unsigned int disabled:1;
+	unsigned int reenable_beacon:1;
 
 	u8 own_addr[ETH_ALEN];
 
@@ -150,6 +158,7 @@ struct hostapd_data {
 	void *ssl_ctx;
 	void *eap_sim_db_priv;
 	struct radius_server_data *radius_srv;
+	struct dl_list erp_keys; /* struct eap_server_erp_key */
 
 	int parameter_set_count;
 
@@ -217,6 +226,11 @@ struct hostapd_data {
 	unsigned int cs_c_off_beacon;
 	unsigned int cs_c_off_proberesp;
 	int csa_in_progress;
+	unsigned int cs_c_off_ecsa_beacon;
+	unsigned int cs_c_off_ecsa_proberesp;
+
+	/* BSS Load */
+	unsigned int bss_load_update_timeout;
 
 #ifdef CONFIG_P2P
 	struct p2p_data *p2p;
@@ -231,10 +245,22 @@ struct hostapd_data {
 	int noa_enabled;
 	int noa_start;
 	int noa_duration;
+	unsigned int disallow_legacy_clients;
 #endif /* CONFIG_P2P */
 #ifdef CONFIG_INTERWORKING
 	size_t gas_frag_limit;
 #endif /* CONFIG_INTERWORKING */
+#ifdef CONFIG_PROXYARP
+	struct l2_packet_data *sock_dhcp;
+	struct l2_packet_data *sock_ndisc;
+#endif /* CONFIG_PROXYARP */
+#ifdef CONFIG_MESH
+	int num_plinks;
+	int max_plinks;
+	void (*mesh_sta_free_cb)(struct sta_info *sta);
+	struct wpabuf *mesh_pending_auth;
+	struct os_reltime mesh_pending_auth_time;
+#endif /* CONFIG_MESH */
 
 #ifdef CONFIG_SQLITE
 	struct hostapd_eap_user tmp_eap_user;
@@ -247,7 +273,10 @@ struct hostapd_data {
 #endif /* CONFIG_SAE */
 
 #ifdef CONFIG_TESTING_OPTIONS
-	int ext_mgmt_frame_handling;
+	unsigned int ext_mgmt_frame_handling:1;
+	unsigned int ext_eapol_frame_io:1;
+
+	struct l2_packet_data *l2_test;
 #endif /* CONFIG_TESTING_OPTIONS */
 };
 
@@ -272,6 +301,10 @@ struct hostapd_iface {
 		HAPD_IFACE_ENABLED
 	} state;
 
+#ifdef CONFIG_MESH
+	struct mesh_conf *mconf;
+#endif /* CONFIG_MESH */
+
 	size_t num_bss;
 	struct hostapd_data **bss;
 
@@ -288,7 +321,10 @@ struct hostapd_iface {
 	struct ap_info *ap_list; /* AP info list head */
 	struct ap_info *ap_hash[STA_HASH_SIZE];
 
-	unsigned int drv_flags;
+	u64 drv_flags;
+
+	/* SMPS modes supported by the driver (WPA_DRIVER_SMPS_MODE_*) */
+	unsigned int smps_modes;
 
 	/*
 	 * A bitmap of supported protocols for probe response offload. See
@@ -351,6 +387,14 @@ struct hostapd_iface {
 	/* lowest observed noise floor in dBm */
 	s8 lowest_nf;
 
+	/* channel utilization calculation */
+	u64 last_channel_time;
+	u64 last_channel_time_busy;
+	u8 channel_utilization;
+	unsigned int csa_supported:1;
+	/* eCSA IE will be added only if operating class is specified */
+	u8 cs_oper_class;
+
 	unsigned int dfs_cac_ms;
 	struct os_reltime dfs_cac_start;
 
@@ -364,6 +408,8 @@ struct hostapd_iface {
 
 	void (*scan_cb)(struct hostapd_iface *iface);
 	int num_ht40_scan_tries;
+
+	int ext_tx_power;
 };
 
 /* hostapd.c */
@@ -392,7 +438,8 @@ int hostapd_reload_iface(struct hostapd_iface *hapd_iface);
 int hostapd_disable_iface(struct hostapd_iface *hapd_iface);
 int hostapd_add_iface(struct hapd_interfaces *ifaces, char *buf);
 int hostapd_remove_iface(struct hapd_interfaces *ifaces, char *buf);
-void hostapd_channel_list_updated(struct hostapd_iface *iface, int initiator);
+void hostapd_channel_list_updated(struct hostapd_iface *iface,
+				  struct channel_list_changed *info);
 void hostapd_set_state(struct hostapd_iface *iface, enum hostapd_iface_state s);
 const char * hostapd_state_text(enum hostapd_iface_state s);
 int hostapd_switch_channel(struct hostapd_data *hapd,
@@ -401,6 +448,7 @@ void
 hostapd_switch_channel_fallback(struct hostapd_iface *iface,
 				const struct hostapd_freq_params *freq_params);
 void hostapd_cleanup_cs_params(struct hostapd_data *hapd);
+int hostapd_flush_old_stations(struct hostapd_data *hapd, u16 reason);
 
 /* utils.c */
 int hostapd_register_probereq_cb(struct hostapd_data *hapd,
@@ -427,5 +475,8 @@ void hostapd_event_ch_switch(struct hostapd_data *hapd, int freq, int ht,
 const struct hostapd_eap_user *
 hostapd_get_eap_user(struct hostapd_data *hapd, const u8 *identity,
 		     size_t identity_len, int phase2);
+
+int hostapd_csa_in_progress(struct hostapd_iface *iface);
+int hostapd_set_tx_power(struct hostapd_iface *iface);
 
 #endif /* HOSTAPD_H */

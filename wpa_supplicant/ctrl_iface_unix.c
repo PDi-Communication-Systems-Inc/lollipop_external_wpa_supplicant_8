@@ -1,6 +1,8 @@
 /*
  * WPA Supplicant / UNIX domain socket -based control interface
  * Copyright (c) 2004-2014, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -47,6 +49,7 @@ struct ctrl_iface_priv {
 	struct wpa_supplicant *wpa_s;
 	int sock;
 	struct dl_list ctrl_dst;
+	int android_control_socket;
 };
 
 
@@ -54,6 +57,7 @@ struct ctrl_iface_global_priv {
 	struct wpa_global *global;
 	int sock;
 	struct dl_list ctrl_dst;
+	int android_control_socket;
 };
 
 
@@ -72,7 +76,7 @@ static int wpas_ctrl_iface_global_reinit(struct wpa_global *global,
 
 static int wpa_supplicant_ctrl_iface_attach(struct dl_list *ctrl_dst,
 					    struct sockaddr_un *from,
-					    socklen_t fromlen)
+					    socklen_t fromlen, int global)
 {
 	struct wpa_ctrl_dst *dst;
 	char addr_txt[200];
@@ -87,7 +91,8 @@ static int wpa_supplicant_ctrl_iface_attach(struct dl_list *ctrl_dst,
 	printf_encode(addr_txt, sizeof(addr_txt),
 		      (u8 *) from->sun_path,
 		      fromlen - offsetof(struct sockaddr_un, sun_path));
-	wpa_printf(MSG_DEBUG, "CTRL_IFACE monitor attached %s", addr_txt);
+	wpa_printf(MSG_DEBUG, "CTRL_IFACE %smonitor attached %s",
+		   global ? "global " : "", addr_txt);
 	return 0;
 }
 
@@ -172,7 +177,7 @@ static void wpa_supplicant_ctrl_iface_receive(int sock, void *eloop_ctx,
 
 	if (os_strcmp(buf, "ATTACH") == 0) {
 		if (wpa_supplicant_ctrl_iface_attach(&priv->ctrl_dst, &from,
-						     fromlen))
+						     fromlen, 0))
 			reply_len = 1;
 		else {
 			new_attached = 1;
@@ -191,6 +196,33 @@ static void wpa_supplicant_ctrl_iface_receive(int sock, void *eloop_ctx,
 		else
 			reply_len = 2;
 	} else {
+#if defined(CONFIG_P2P) && defined(ANDROID_P2P) && defined(ANDROID422)
+		char *ifname, *ifend;
+
+		ifname = os_strstr(buf, "interface=");
+		if (ifname != NULL) {
+			ifend = os_strchr(ifname + 10, ' ');
+			if (ifend != NULL)
+				*ifend++ = '\0';
+			else
+				*(ifname - 1) = '\0';
+			for (wpa_s = wpa_s->global->ifaces; wpa_s;
+			     wpa_s = wpa_s->next) {
+				if (os_strcmp(wpa_s->ifname, ifname + 10) == 0)
+					break;
+			}
+			if (wpa_s == NULL) {
+				wpa_printf(MSG_ERROR, "P2P: %s does not exist",
+					   ifname);
+				wpa_s = eloop_ctx;
+			}
+			if (ifend != NULL)
+				os_memmove(ifname, ifend, strlen(ifend) + 1);
+			wpa_printf(MSG_INFO, "wpa_s->ifname %s cmd %s",
+				   wpa_s->ifname, buf);
+		}
+#endif /* defined CONFIG_P2P && defined ANDROID_P2P && defined(ANDROID422) */
+
 		reply_buf = wpa_supplicant_ctrl_iface_process(wpa_s, buf,
 							      &reply_len);
 		reply = reply_buf;
@@ -270,7 +302,7 @@ static char * wpa_supplicant_ctrl_iface_path(struct wpa_supplicant *wpa_s)
 	}
 
 	res = os_snprintf(buf, len, "%s/%s", dir, wpa_s->ifname);
-	if (res < 0 || (size_t) res >= len) {
+	if (os_snprintf_error(len, res)) {
 		os_free(pbuf);
 		os_free(buf);
 		return NULL;
@@ -340,8 +372,10 @@ static int wpas_ctrl_iface_open_sock(struct wpa_supplicant *wpa_s,
 	os_snprintf(addr.sun_path, sizeof(addr.sun_path), "wpa_%s",
 		    wpa_s->conf->ctrl_interface);
 	priv->sock = android_get_control_socket(addr.sun_path);
-	if (priv->sock >= 0)
+	if (priv->sock >= 0) {
+		priv->android_control_socket = 1;
 		goto havesock;
+	}
 #endif /* ANDROID */
 	if (os_strncmp(buf, "DIR=", 4) == 0) {
 		dir = buf + 4;
@@ -556,6 +590,16 @@ static int wpas_ctrl_iface_reinit(struct wpa_supplicant *wpa_s,
 	if (priv->sock <= 0)
 		return -1;
 
+	/*
+	 * On Android, the control socket being used may be the socket
+	 * that is created when wpa_supplicant is started as a /init.*.rc
+	 * service. Such a socket is maintained as a key-value pair in
+	 * Android's environment. Closing this control socket would leave us
+	 * in a bad state with an invalid socket descriptor.
+	 */
+	if (priv->android_control_socket)
+		return priv->sock;
+
 	eloop_unregister_read_sock(priv->sock);
 	close(priv->sock);
 	priv->sock = -1;
@@ -657,7 +701,7 @@ static void wpa_supplicant_ctrl_iface_send(struct wpa_supplicant *wpa_s,
 		return;
 
 	res = os_snprintf(levelstr, sizeof(levelstr), "<%d>", level);
-	if (res < 0 || (size_t) res >= sizeof(levelstr))
+	if (os_snprintf_error(sizeof(levelstr), res))
 		return;
 	idx = 0;
 	if (ifname) {
@@ -761,7 +805,8 @@ void wpa_supplicant_ctrl_iface_wait(struct ctrl_iface_priv *priv)
 		if (os_strcmp(buf, "ATTACH") == 0) {
 			/* handle ATTACH signal of first monitor interface */
 			if (!wpa_supplicant_ctrl_iface_attach(&priv->ctrl_dst,
-							      &from, fromlen)) {
+							      &from, fromlen,
+							      0)) {
 				if (sendto(priv->sock, "OK\n", 3, 0,
 					   (struct sockaddr *) &from, fromlen) <
 				    0) {
@@ -816,7 +861,7 @@ static void wpa_supplicant_global_ctrl_iface_receive(int sock, void *eloop_ctx,
 
 	if (os_strcmp(buf, "ATTACH") == 0) {
 		if (wpa_supplicant_ctrl_iface_attach(&priv->ctrl_dst, &from,
-						     fromlen))
+						     fromlen, 1))
 			reply_len = 1;
 		else
 			reply_len = 2;
@@ -870,6 +915,7 @@ static int wpas_global_ctrl_iface_open_sock(struct wpa_global *global,
 		}
 		wpa_printf(MSG_DEBUG, "Using Android control socket '%s'",
 			   ctrl + 9);
+		priv->android_control_socket = 1;
 		goto havesock;
 	}
 
@@ -884,6 +930,7 @@ static int wpas_global_ctrl_iface_open_sock(struct wpa_global *global,
 			wpa_printf(MSG_DEBUG,
 				   "Using Android control socket '%s'",
 				   ctrl);
+			priv->android_control_socket = 1;
 			goto havesock;
 		}
 	}
@@ -1063,6 +1110,16 @@ static int wpas_ctrl_iface_global_reinit(struct wpa_global *global,
 
 	if (priv->sock <= 0)
 		return -1;
+
+	/*
+	 * On Android, the control socket being used may be the socket
+	 * that is created when wpa_supplicant is started as a /init.*.rc
+	 * service. Such a socket is maintained as a key-value pair in
+	 * Android's environment. Closing this control socket would leave us
+	 * in a bad state with an invalid socket descriptor.
+	 */
+	if (priv->android_control_socket)
+		return priv->sock;
 
 	eloop_unregister_read_sock(priv->sock);
 	close(priv->sock);

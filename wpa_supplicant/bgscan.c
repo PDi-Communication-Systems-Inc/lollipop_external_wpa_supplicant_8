@@ -1,6 +1,8 @@
 /*
  * WPA Supplicant - background scan and roaming interface
  * Copyright (c) 2009-2010, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -89,18 +91,20 @@ void bgscan_deinit(struct wpa_supplicant *wpa_s)
 
 
 int bgscan_notify_scan(struct wpa_supplicant *wpa_s,
-		       struct wpa_scan_results *scan_res)
+		       struct wpa_scan_results *scan_res,
+		       int notify_only)
 {
-	if (wpa_s->bgscan && wpa_s->bgscan_priv)
+	if (wpa_s->bgscan && wpa_s->bgscan_priv && wpa_s->bgscan->notify_scan)
 		return wpa_s->bgscan->notify_scan(wpa_s->bgscan_priv,
-						  scan_res);
+						  scan_res, notify_only);
 	return 0;
 }
 
 
 void bgscan_notify_beacon_loss(struct wpa_supplicant *wpa_s)
 {
-	if (wpa_s->bgscan && wpa_s->bgscan_priv)
+	if (wpa_s->bgscan && wpa_s->bgscan_priv &&
+	    wpa_s->bgscan->notify_beacon_loss)
 		wpa_s->bgscan->notify_beacon_loss(wpa_s->bgscan_priv);
 }
 
@@ -109,9 +113,29 @@ void bgscan_notify_signal_change(struct wpa_supplicant *wpa_s, int above,
 				 int current_signal, int current_noise,
 				 int current_txrate)
 {
-	if (wpa_s->bgscan && wpa_s->bgscan_priv)
+	if (wpa_s->bgscan && wpa_s->bgscan_priv &&
+	    wpa_s->bgscan->notify_signal_change)
 		wpa_s->bgscan->notify_signal_change(wpa_s->bgscan_priv, above,
 						    current_signal,
 						    current_noise,
 						    current_txrate);
 }
+
+void bgscan_notify_tcm_changed(struct wpa_supplicant *wpa_s,
+			       enum traffic_load traffic_load,
+			       int vi_vo_present)
+{
+	if (wpa_s->bgscan && wpa_s->bgscan_priv &&
+	    wpa_s->bgscan->notify_tcm_changed)
+		wpa_s->bgscan->notify_tcm_changed(wpa_s->bgscan_priv,
+						  traffic_load, vi_vo_present);
+}
+
+void bgscan_notify_scan_trigger(struct wpa_supplicant *wpa_s,
+				struct wpa_driver_scan_params *params)
+{
+	if (wpa_s->bgscan && wpa_s->bgscan_priv &&
+	    wpa_s->bgscan->notify_scan_trigger)
+		wpa_s->bgscan->notify_scan_trigger(wpa_s->bgscan_priv, params);
+}
+

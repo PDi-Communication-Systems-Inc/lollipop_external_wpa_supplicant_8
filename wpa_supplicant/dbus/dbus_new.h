@@ -168,6 +168,7 @@ void wpas_dbus_signal_debug_timestamp_changed(struct wpa_global *global);
 void wpas_dbus_signal_debug_show_keys_changed(struct wpa_global *global);
 
 int wpas_dbus_register_peer(struct wpa_supplicant *wpa_s, const u8 *dev_addr);
+void wpas_dbus_signal_p2p_find_stopped(struct wpa_supplicant *wpa_s);
 void wpas_dbus_signal_peer_device_found(struct wpa_supplicant *wpa_s,
 					   const u8 *dev_addr);
 int wpas_dbus_unregister_peer(struct wpa_supplicant *wpa_s,
@@ -215,6 +216,8 @@ void wpas_dbus_signal_p2p_wps_failed(struct wpa_supplicant *wpa_s,
 				     struct wps_event_fail *fail);
 void wpas_dbus_signal_certification(struct wpa_supplicant *wpa_s,
 				    int depth, const char *subject,
+				    const char *altsubject[],
+				    int num_altsubject,
 				    const char *cert_hash,
 				    const struct wpabuf *cert);
 void wpas_dbus_signal_preq(struct wpa_supplicant *wpa_s,
@@ -458,6 +461,11 @@ wpas_dbus_signal_p2p_peer_joined(struct wpa_supplicant *wpa_s,
 }
 
 static inline void
+wpas_dbus_signal_p2p_find_stopped(struct wpa_supplicant *wpa_s)
+{
+}
+
+static inline void
 wpas_dbus_signal_peer_device_found(struct wpa_supplicant *wpa_s,
 				   const u8 *dev_addr)
 {
@@ -484,6 +492,8 @@ wpas_dbus_signal_p2p_wps_failed(struct wpa_supplicant *wpa_s,
 static inline void wpas_dbus_signal_certification(struct wpa_supplicant *wpa_s,
 						  int depth,
 						  const char *subject,
+						  const char *altsubject[],
+						  int num_altsubject,
 						  const char *cert_hash,
 						  const struct wpabuf *cert)
 {

@@ -2,6 +2,8 @@
  * WPA Supplicant - Basic AP mode support routines
  * Copyright (c) 2003-2009, Jouni Malinen <j@w1.fi>
  * Copyright (c) 2009, Atheros Communications
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -10,6 +12,7 @@
 #ifndef AP_H
 #define AP_H
 
+struct hostapd_config;
 int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 			     struct wpa_ssid *ssid);
 void wpa_supplicant_ap_deinit(struct wpa_supplicant *wpa_s);
@@ -57,6 +60,12 @@ void wpas_ap_ch_switch(struct wpa_supplicant *wpa_s, int freq, int ht,
 		       int offset, int width, int cf1, int cf2);
 struct wpabuf * wpas_ap_wps_nfc_config_token(struct wpa_supplicant *wpa_s,
 					     int ndef);
+
+int wpas_ap_freq_flags(struct wpa_supplicant *wpa_s, int freq, int flags);
+
+int wpas_ap_vht_allowed(struct wpa_supplicant *wpa_s);
+
+
 #ifdef CONFIG_AP
 struct wpabuf * wpas_ap_wps_nfc_handover_sel(struct wpa_supplicant *wpa_s,
 					     int ndef);
@@ -74,5 +83,25 @@ int wpas_ap_wps_nfc_report_handover(struct wpa_supplicant *wpa_s,
 				    const struct wpabuf *sel);
 int wpas_ap_wps_add_nfc_pw(struct wpa_supplicant *wpa_s, u16 pw_id,
 			   const struct wpabuf *pw, const u8 *pubkey_hash);
+
+struct hostapd_config;
+int wpa_supplicant_conf_ap_ht(struct wpa_supplicant *wpa_s,
+			      struct wpa_ssid *ssid,
+			      struct hostapd_config *conf);
+void wpas_ap_update_channel_list(struct wpa_supplicant *wpa_s,
+				 struct channel_list_changed *info);
+
+int wpas_ap_stop_ap(struct wpa_supplicant *wpa_s);
+
+void wpas_event_dfs_radar_detected(struct wpa_supplicant *wpa_s,
+				   struct dfs_event *radar);
+void wpas_event_dfs_cac_started(struct wpa_supplicant *wpa_s,
+				struct dfs_event *radar);
+void wpas_event_dfs_cac_finished(struct wpa_supplicant *wpa_s,
+				 struct dfs_event *radar);
+void wpas_event_dfs_cac_aborted(struct wpa_supplicant *wpa_s,
+				struct dfs_event *radar);
+void wpas_event_dfs_cac_nop_finished(struct wpa_supplicant *wpa_s,
+				     struct dfs_event *radar);
 
 #endif /* AP_H */

@@ -1,6 +1,8 @@
 /*
  * hostapd / main()
- * Copyright (c) 2002-2011, Jouni Malinen <j@w1.fi>
+ * Copyright (c) 2002-2015, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -28,8 +30,6 @@
 #include "eap_register.h"
 #include "ctrl_iface.h"
 
-struct wowlan_triggers *wpa_get_wowlan_triggers(const char *wowlan_triggers,
-						struct wpa_driver_capa *capa);
 
 struct hapd_global {
 	void **drv_priv;
@@ -186,9 +186,7 @@ static int hostapd_driver_init(struct hostapd_iface *iface)
 	}
 	params.bssid = b;
 	params.ifname = hapd->conf->iface;
-	params.ssid = hapd->conf->ssid.ssid;
-	params.ssid_len = hapd->conf->ssid.ssid_len;
-	params.test_socket = hapd->conf->test_socket;
+	params.driver_params = hapd->iconf->driver_params;
 	params.use_pae_group_addr = hapd->conf->use_pae_group_addr;
 
 	params.num_bridge = hapd->iface->num_bss;
@@ -217,6 +215,7 @@ static int hostapd_driver_init(struct hostapd_iface *iface)
 		struct wowlan_triggers *triggs;
 
 		iface->drv_flags = capa.flags;
+		iface->smps_modes = capa.smps_modes;
 		iface->probe_resp_offloads = capa.probe_resp_offloads;
 		iface->extended_capa = capa.extended_capa;
 		iface->extended_capa_mask = capa.extended_capa_mask;
@@ -229,6 +228,7 @@ static int hostapd_driver_init(struct hostapd_iface *iface)
 				wpa_printf(MSG_ERROR, "set_wowlan failed");
 		}
 		os_free(triggs);
+		iface->csa_supported = !!(capa.flags & WPA_DRIVER_FLAGS_AP_CSA);
 	}
 
 	return 0;
@@ -411,7 +411,7 @@ static int hostapd_global_run(struct hapd_interfaces *ifaces, int daemonize,
 #endif /* EAP_SERVER_TNC */
 
 	if (daemonize && os_daemonize(pid_file)) {
-		perror("daemon");
+		wpa_printf(MSG_ERROR, "daemon: %s", strerror(errno));
 		return -1;
 	}
 
@@ -427,7 +427,7 @@ static void show_version(void)
 		"hostapd v" VERSION_STR "\n"
 		"User space daemon for IEEE 802.11 AP management,\n"
 		"IEEE 802.1X/WPA/WPA2/EAP/RADIUS Authenticator\n"
-		"Copyright (c) 2002-2014, Jouni Malinen <j@w1.fi> "
+		"Copyright (c) 2002-2015, Jouni Malinen <j@w1.fi> "
 		"and contributors\n");
 }
 
@@ -551,6 +551,10 @@ int main(int argc, char *argv[])
 	int enable_trace_dbg = 0;
 #endif /* CONFIG_DEBUG_LINUX_TRACING */
 
+#ifdef CONFIG_ANDROID_LOG
+	char wpa_debug_level_env[PROPERTY_VALUE_MAX];
+#endif /* CONFIG_ANDROID_LOG */
+
 	if (os_program_init())
 		return -1;
 
@@ -633,6 +637,20 @@ int main(int argc, char *argv[])
 		}
 	}
 
+#ifdef CONFIG_ANDROID_LOG
+	if (property_get(ANDROID_LOG_LEVEL_PROP, wpa_debug_level_env,
+			 NULL) != 0) {
+		int level = atoi(wpa_debug_level_env);
+
+		if (level >= MSG_EXCESSIVE && level <= MSG_ERROR) {
+			wpa_debug_level = level;
+			wpa_printf(MSG_ERROR,
+				   "Override hostapd_debug_log=%d from env",
+				   level);
+		}
+	}
+#endif /* CONFIG_ANDROID_LOG */
+
 	if (optind == argc && interfaces.global_iface_path == NULL &&
 	    num_bss_configs == 0)
 		usage();
@@ -641,6 +659,8 @@ int main(int argc, char *argv[])
 
 	if (log_file)
 		wpa_debug_open_file(log_file);
+	else
+		wpa_debug_setup_stdout();
 #ifdef CONFIG_DEBUG_LINUX_TRACING
 	if (enable_trace_dbg) {
 		int tret = wpa_debug_open_linux_tracing();

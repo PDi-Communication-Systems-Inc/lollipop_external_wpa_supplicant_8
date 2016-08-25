@@ -1,6 +1,8 @@
 /*
  * hostapd / RADIUS Accounting
  * Copyright (c) 2002-2009, 2012, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2011 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -10,6 +12,8 @@
 
 #include "utils/common.h"
 #include "utils/eloop.h"
+#include "eapol_auth/eapol_auth_sm.h"
+#include "eapol_auth/eapol_auth_sm_i.h"
 #include "radius/radius.h"
 #include "radius/radius_client.h"
 #include "hostapd.h"
@@ -50,12 +54,19 @@ static struct radius_msg * accounting_msg(struct hostapd_data *hapd,
 	if (sta) {
 		radius_msg_make_authenticator(msg, (u8 *) sta, sizeof(*sta));
 
-		os_snprintf(buf, sizeof(buf), "%08X-%08X",
-			    sta->acct_session_id_hi, sta->acct_session_id_lo);
-		if (!radius_msg_add_attr(msg, RADIUS_ATTR_ACCT_SESSION_ID,
-					 (u8 *) buf, os_strlen(buf))) {
-			wpa_printf(MSG_INFO, "Could not add Acct-Session-Id");
-			goto fail;
+		if ((hapd->conf->wpa & 2) &&
+		    !hapd->conf->disable_pmksa_caching &&
+		    sta->eapol_sm && sta->eapol_sm->acct_multi_session_id_hi) {
+			os_snprintf(buf, sizeof(buf), "%08X+%08X",
+				    sta->eapol_sm->acct_multi_session_id_hi,
+				    sta->eapol_sm->acct_multi_session_id_lo);
+			if (!radius_msg_add_attr(
+				    msg, RADIUS_ATTR_ACCT_MULTI_SESSION_ID,
+				    (u8 *) buf, os_strlen(buf))) {
+				wpa_printf(MSG_INFO,
+					   "Could not add Acct-Multi-Session-Id");
+				goto fail;
+			}
 		}
 	} else {
 		radius_msg_make_authenticator(msg, (u8 *) hapd, sizeof(*hapd));

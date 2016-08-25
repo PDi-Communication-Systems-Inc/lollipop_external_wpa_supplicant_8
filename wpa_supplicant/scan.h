@@ -1,6 +1,8 @@
 /*
  * WPA Supplicant - Scanning
  * Copyright (c) 2003-2014, Jouni Malinen <j@w1.fi>
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -48,5 +50,17 @@ wpa_scan_clone_params(const struct wpa_driver_scan_params *src);
 void wpa_scan_free_params(struct wpa_driver_scan_params *params);
 int wpas_start_pno(struct wpa_supplicant *wpa_s);
 int wpas_stop_pno(struct wpa_supplicant *wpa_s);
+void wpas_scan_restart_sched_scan(struct wpa_supplicant *wpa_s);
+void wpas_scan_reset_sched_scan(struct wpa_supplicant *wpa_s);
+void wpa_supplicant_suspend_sched_scan(struct wpa_supplicant *wpa_s);
+void wpas_mac_addr_rand_scan_clear(struct wpa_supplicant *wpa_s,
+				   unsigned int type);
+int wpas_mac_addr_rand_scan_set(struct wpa_supplicant *wpa_s,
+				unsigned int type, const u8 *addr,
+				const u8 *mask);
 
+int wpa_setband_scan_freqs_list(struct wpa_supplicant *wpa_s,
+				enum hostapd_hw_mode band,
+				const int *exclude, int exclude_size,
+				struct wpa_driver_scan_params *params);
 #endif /* SCAN_H */

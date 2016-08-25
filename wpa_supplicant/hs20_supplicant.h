@@ -8,6 +8,7 @@
 #ifndef HS20_SUPPLICANT_H
 #define HS20_SUPPLICANT_H
 
+void hs20_configure_frame_filters(struct wpa_supplicant *wpa_s);
 void wpas_hs20_add_indication(struct wpabuf *buf, int pps_mo_id);
 
 int hs20_anqp_send_req(struct wpa_supplicant *wpa_s, const u8 *dst, u32 stypes,
@@ -17,7 +18,8 @@ struct wpabuf * hs20_build_anqp_req(u32 stypes, const u8 *payload,
 void hs20_put_anqp_req(u32 stypes, const u8 *payload, size_t payload_len,
 		       struct wpabuf *buf);
 void hs20_parse_rx_hs20_anqp_resp(struct wpa_supplicant *wpa_s,
-				  const u8 *sa, const u8 *data, size_t slen);
+				  struct wpa_bss *bss, const u8 *sa,
+				  const u8 *data, size_t slen);
 int is_hs20_network(struct wpa_supplicant *wpa_s, struct wpa_ssid *ssid,
 		    struct wpa_bss *bss);
 int hs20_get_pps_mo_id(struct wpa_supplicant *wpa_s, struct wpa_ssid *ssid);

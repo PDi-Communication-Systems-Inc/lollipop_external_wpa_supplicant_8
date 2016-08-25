@@ -2039,10 +2039,12 @@ struct wpabuf * wps_er_config_token_from_cred(struct wps_context *wps,
 	data.use_cred = cred;
 	if (wps_build_cred(&data, ret) ||
 	    wps_build_wfa_ext(ret, 0, NULL, 0)) {
+		os_free(data.new_psk);
 		wpabuf_free(ret);
 		return NULL;
 	}
 
+	os_free(data.new_psk);
 	return ret;
 }
 

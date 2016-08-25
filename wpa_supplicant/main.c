@@ -159,6 +159,9 @@ int main(int argc, char *argv[])
 	int iface_count, exitcode = -1;
 	struct wpa_params params;
 	struct wpa_global *global;
+#ifdef CONFIG_ANDROID_LOG
+	char wpa_debug_level_env[PROPERTY_VALUE_MAX];
+#endif /* CONFIG_ANDROID_LOG */
 
 	if (os_program_init())
 		return -1;
@@ -237,7 +240,7 @@ int main(int argc, char *argv[])
 			goto out;
 #ifdef CONFIG_P2P
 		case 'm':
-			iface->conf_p2p_dev = optarg;
+			params.conf_p2p_dev = optarg;
 			break;
 #endif /* CONFIG_P2P */
 		case 'o':
@@ -298,6 +301,19 @@ int main(int argc, char *argv[])
 		}
 	}
 
+#ifdef CONFIG_ANDROID_LOG
+	if (property_get(ANDROID_LOG_LEVEL_PROP, wpa_debug_level_env,
+			 NULL) != 0) {
+		int level = atoi(wpa_debug_level_env);
+
+		if (level >= MSG_EXCESSIVE && level <= MSG_ERROR) {
+			params.wpa_debug_level = level;
+			wpa_printf(MSG_INFO,
+				   "Override wpa_debug_log=%d from env", level);
+		}
+	}
+#endif /* CONFIG_ANDROID_LOG */
+
 	exitcode = 0;
 	global = wpa_supplicant_init(&params);
 	if (global == NULL) {
@@ -322,19 +338,11 @@ int main(int argc, char *argv[])
 			exitcode = -1;
 			break;
 		}
-		wpa_s = wpa_supplicant_add_iface(global, &ifaces[i]);
+		wpa_s = wpa_supplicant_add_iface(global, &ifaces[i], NULL);
 		if (wpa_s == NULL) {
 			exitcode = -1;
 			break;
 		}
-#ifdef CONFIG_P2P
-		if (wpa_s->global->p2p == NULL &&
-		    (wpa_s->drv_flags &
-		     WPA_DRIVER_FLAGS_DEDICATED_P2P_DEVICE) &&
-		    wpas_p2p_add_p2pdev_interface(wpa_s, iface->conf_p2p_dev) <
-		    0)
-			exitcode = -1;
-#endif /* CONFIG_P2P */
 	}
 
 	if (exitcode == 0)

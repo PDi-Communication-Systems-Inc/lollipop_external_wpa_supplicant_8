@@ -1,6 +1,8 @@
 /*
  * Wi-Fi Direct - P2P Device Discoverability procedure
  * Copyright (c) 2010, Atheros Communications
+ * Copyright(c) 2013 - 2014 Intel Mobile Communications GmbH.
+ * Copyright(c) 2011 - 2014 Intel Corporation. All rights reserved.
  *
  * This software may be distributed under the terms of the BSD license.
  * See README for more details.
@@ -314,7 +316,7 @@ void p2p_process_go_disc_req(struct p2p_data *p2p, const u8 *da, const u8 *sa,
 
 	p2p_dbg(p2p, "Received GO Discoverability Request - remain awake for 100 TU");
 
-	ies = p2p_build_probe_resp_ies(p2p);
+	ies = p2p_build_probe_resp_ies(p2p, NULL, 0);
 	if (ies == NULL)
 		return;
 
